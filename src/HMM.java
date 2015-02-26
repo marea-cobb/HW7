@@ -1,8 +1,8 @@
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -10,234 +10,131 @@ public class HMM {
 	
 	private String[] states;
 	private double[] initialization;
-	private List<Map<Character, Double>> emission;
+	private List<Map<String, Double>> emission;
 	private double[][] transition;
-	private Character[] alphabet;
 	
 	
 	//Constructor for only maintaining states
-	public HMM(String[] states, double[] initialization, List<Map<Character, Double>> emission, double[][] transition, Character[] alphabet) {
+	public HMM(String[] states, double[] initialization, List<Map<String, Double>> emission, double[][] transition) {
 		this.states = states;
 		this.initialization = initialization;
-		this.emission = emission;
 		this.transition = transition;
-		this.alphabet = alphabet;
-	}
-
-	public double baumWelch(String sequence, double target_delta) {
-		int index = 0;
-		double target_log_delta = LogMath.log(target_delta);
-		double new_likelihood = baumWelch(sequence);
-		double old_likelihood;
-		
-		System.out.println("Initial likelihood: " + new_likelihood);
-		System.out.println(String.format("Target delta: %s (%s)", target_log_delta, target_delta));
-		
-		double change;
-		do {
-			index++;
-			old_likelihood = new_likelihood;
-			
-			new_likelihood = baumWelch(sequence);
-			
-			change = LogMath.product(new_likelihood, -old_likelihood);
-			
-			System.out.println(String.format("Likelihood: %s. change: %s", new_likelihood, change));
-			System.out.println("Iterations for Convergence: " + index);
-		} while (change > target_delta);
-		
-		return new_likelihood;
-	}
-	
-	private void updateHMM(double[] initialization, List<Map<Character, Double>> emission, double[][] transition) {
-		this.initialization = initialization;
 		this.emission = emission;
-		this.transition = transition;
 	}
-	
-	private double[][] forward(String sequence) {
-		int T = sequence.length();
-		int N = states.length;
-		
-		double[][] fwd = new double[N][T];
-		
-		//Initial score
-		for (int i=0; i<N; i++) {
-			fwd[i][0] = LogMath.product(logInitialization(i), logEmission(i, 0, sequence));
-		}
-		
-		for (int t=1; t<T; t++) {
-			for (int j=0; j<N; j++) {
-				double logalpha = LogMath.LOGZERO;
-				
-				for (int i=0; i<N; i++) {
-					logalpha = LogMath.sum(logalpha, LogMath.product(fwd[i][t-1], logTransition(i, j)));
-				}
-				
-				fwd[j][t] = LogMath.product(logalpha, logEmission(j, t, sequence));
-			}
-		}
-		
-		return fwd;
+
+	public static double log2(double a)
+	{
+		double value = Math.log(a) / Math.log(2);
+	return value;
 	}
-	
-	//Stores values in log scale
-	private double[][] backwards(String sequence) {
-		int T = sequence.length();
-		int N = states.length;
-		
-		double[][] bkw = new double[N][T];
-		
-		for (int i=0; i<N; i++) {
-			bkw[i][T-1] = 0;
-		}
-		
-		for (int t=T-2; t >= 0; t--) {
-			for (int i=0; i<N; i++) {
-				double logbeta = LogMath.LOGZERO;
-				
-				for (int j=0; j < N; j++) {
-					logbeta = LogMath.sum(logbeta, LogMath.product(logTransition(i, j), logEmission(j, t+1, sequence), bkw[j][t+1]));
-				}
-				bkw[i][t] = logbeta;
-			}
-		}
-		
-		return bkw;
-	}
-	
-	private double logInitialization(int i) {
-		return LogMath.log(initialization[i]);
-	}
-	
-	private double logTransition(int i, int j) {
-		return LogMath.log(transition[i][j]);
-	}
-	
-	private double logEmission(int i, int j, String sequence) {
-		return LogMath.log(emission.get(i).get(sequence.charAt(j)));
-	}
-	
-	private double baumWelch(String sequence) {		
-		int T = sequence.length();
-		double[][] fwd;
-		double[][] bkw;
-		
-		double[][] gamma = new double[states.length][T];
-		double[][][] xi = new double[states.length][states.length][T];
-		
-		
-		//New states
-		double[] new_initialization = new double[states.length];
-		double[][] new_transition = new double[states.length][states.length];
-		List<Map<Character, Double>> new_emission = new ArrayList<Map<Character, Double>>();
-		
-		
-		//Run forward and backward
-		fwd = forward(sequence);
-		bkw = backwards(sequence);
-		
-		//Compute the gamma
-		for (int t=0; t<T; t++) {
-			double normalizer = LogMath.LOGZERO;
-			
-			for (int i=0; i<states.length; i++) {
-				gamma[i][t] = LogMath.product(fwd[i][t], bkw[i][t]);
-				normalizer = LogMath.sum(normalizer, gamma[i][t]);
-			}
-			
-			for (int i=0; i<states.length; i++) {
-				gamma[i][t] = LogMath.product(gamma[i][t], -normalizer);
-			}
-		}
-		
-		//Compute the xi
-		for (int t=0; t<T-1; t++) {
-			double normalizer = LogMath.LOGZERO;
-			
-			for (int i=0; i<states.length; i++) {
-				for (int j=0; j<states.length; j++) {
-					xi[i][j][t] = LogMath.product(fwd[i][t], logTransition(i, j), logEmission(j, t+1, sequence), bkw[j][t+1]);
-					normalizer = LogMath.sum(normalizer, xi[i][j][t]);
-				}
-			}
-			
-			for (int i=0; i<states.length; i++) {
-				for (int j=0; j<states.length; j++) {
-					xi[i][j][t] = LogMath.product(xi[i][j][t], -normalizer);
-				}
-			}
-		}
-				
-		//Re-estimate the initial probabilities
-		for (int i=0; i<states.length; i++) {
-			new_initialization[i] = LogMath.exp(gamma[i][0]);
-		}
-		System.out.println("INITIALIZATION");
-		System.out.println(Arrays.toString(new_initialization));
-		
-		//Re-estimate the transition probabilities
-		for (int i=0; i<states.length; i++) {
-			for (int j=0; j<states.length; j++) {
-				double numerator = LogMath.LOGZERO;
-				double denominator = LogMath.LOGZERO;
-				
-				for (int t=0; t < T-1; t++) {
-					numerator = LogMath.sum(numerator, xi[i][j][t]);
-					denominator = LogMath.sum(denominator, gamma[i][t]);
-				}
-				new_transition[i][j] = LogMath.exp(LogMath.product(numerator, -denominator));
-			}
-		}
-		System.out.println("TRANSITION");
-		System.out.println(Arrays.toString(new_transition[0]) + " " + Arrays.toString(new_transition[1]));
-		
-		
-		//Re-estimate the emission probabilities
-		for (int j=0; j<states.length; j++) {
-			Map<Character, Double> emissionState = new HashMap<Character, Double>();
-			for (int k=0; k<alphabet.length; k++) {
-				double numerator = LogMath.LOGZERO;
-				double denominator = LogMath.LOGZERO;
-				
-				for (int t=0; t<T; t++) {
-					
-					double g = gamma[j][t];
-					if (alphabet[k].equals(sequence.charAt(t))) {
-						numerator = LogMath.sum(numerator, g);
-					}
-					
-					denominator = LogMath.sum(denominator, g);
-				}
-				emissionState.put(alphabet[k], LogMath.exp(LogMath.product(numerator, -denominator)));
-			}
-			new_emission.add(j, emissionState);	
-		}
-		
-		updateHMM(new_initialization, new_emission, new_transition);
-		System.out.println("EMISSION");
-		System.out.println(printTable(emission));
-		
-		double likelihood = LogMath.LOGZERO;
-		for (int i=0; i<states.length; i++) {
-			likelihood = LogMath.sum(fwd[i][T-1]);
-		}
-		return likelihood;
-	}
-	
 
 	
-	
-	private static Map<Character, Double> createEmissionState(double a, double t, double g, double c) {
-		Map<Character, Double> map = new HashMap<Character, Double>();
-		map.put('A', a);
-		map.put('T', t);
-		map.put('G', g);
-		map.put('C', c);
-		return map;
-	}
+	public int[] getMostLikelySequence(String[] sequences, double[][] transition) {
+		int seq_length = sequences[0].length();
 		
-
+		double[][] table = new double[states.length][seq_length];
+		int[][] path = new int[states.length][seq_length];
+		
+		// Initialize all our prior values
+		String starter = AlignmentReader.getSequenceWithIndex(sequences, 0);
+//		System.out.println(starter);
+		for (int i = 0; i < states.length; i++) {
+			table[i][0] = log2(initialization[i]) + log2(emission.get(i).get(starter));
+			path[i][0] = 0;
+		}
+		
+		// Run forward
+		for (int i = 1; i < seq_length; i++) {
+			for (int j = 0; j < states.length; j++) {
+				MaxWithIndex max = getMaxForwardWithIndex(i, j, sequences, table, transition);
+				table[j][i] = max.getMax();
+				path[j][i] = max.getIndex();
+			} 
+		}
+		
+		// Run backwards
+		int[] z = new int[seq_length];
+		int T = seq_length - 1;
+		
+		MaxWithIndex max = getMaxWithIndex(T, table);
+		z[T] = max.getIndex();
+		
+		for (int i = T; i >= 1; i--) {
+			z[i-1] = path[z[i]][i];
+		}
+		
+		return z;
+	}
+	
+	
+	public String[] convertPathToStateNames(int[] path) {
+		String[] stateNames = new String[path.length];
+		for (int i = 0; i < path.length; i++) {
+			stateNames[i] = this.states[path[i]];
+		}
+		return stateNames;
+	}
+	
+	private class MaxWithIndex {
+		private double max;
+		private int index;
+		
+		public MaxWithIndex(double max, int index) {
+			this.max = max;
+			this.index = index;
+		}
+		
+		public double getMax() {
+			return max;
+		}
+		
+		public int getIndex() {
+			return index;
+		}
+		
+		public String toString() {
+			StringBuilder sb = new StringBuilder();
+			sb.append("(").append(max).append(", ").append(index).append(")");
+			return sb.toString();
+		}
+	}
+	
+	private MaxWithIndex getMaxForwardWithIndex(int i, int j, String[] sequences, double[][] table, double[][] transition){
+		double max = Double.NEGATIVE_INFINITY;
+		int index = -1;
+		
+		String c = AlignmentReader.getSequenceWithIndex(sequences, i);
+		for (int k = 0; k < table.length; k++) {
+			double current = table[k][i-1] + log2(transition[k][j]) + log2(emission.get(j).get(c));
+			
+			if (current >= max) {
+				max = current;
+				index = k;
+			}
+		}
+		
+		return new MaxWithIndex(max, index);
+	}
+	
+	private MaxWithIndex getMaxWithIndex(int i, double[][] table) {
+		double max = Double.NEGATIVE_INFINITY;
+		int index = -1;
+		
+		for (int k = 0; k < table.length; k++) {
+			double current = table[k][i];
+			
+			if (current >= max) {
+				max = current;
+				index = k;
+			}
+		}
+		
+		return new MaxWithIndex(max, index);
+	}
+	
+	public static String printTable(double[][] table) {
+		return printTable(table, new DecimalFormat());
+	}
 	
 	public static String printTable(double[][] table, DecimalFormat df) {
 		if (table == null) {
@@ -281,54 +178,124 @@ public class HMM {
         }
 	}
 	
-	
-	private static String printTable(List<Map<Character, Double>> mapList) {
-        StringBuilder sb = new StringBuilder();
-        
-        for (Map<Character, Double> map : mapList) {
-            sb.append("[");
-	        for (Character key :  map.keySet()) {
-	        	sb.append(key + ": " + map.get(key));
-		        sb.append(", ");
-	        }
-	        sb.append("]");
-        }
-        return sb.toString();
-
-	}
 	//Counts the number of times the states our found
+	public int[] getStateCounts(int[] path) {
+		int state1_count = 0;
+		int state2_count = 0;
+		
+		for (int i: path) {
+			if (i==0) {
+				state1_count++;
+			} else if (i==1) {
+				state2_count++;
+			}
+		}
+		
+		int[] count = {state1_count, state2_count};
+		return count;
+	}
+	
+	//Counts the number of state segments
+	public int[] getSegmentCounts(int[] path) {
+		ArrayList<Segments> longest_segments = new ArrayList<Segments>();
+		
+		int segment1_count = 0;
+		int segment2_count = 0;
+		int index = 1;
+		int start = 0;
+		int stop;
+		
+		boolean seg1 = false;
+		boolean seg2 = false;
+		while (index < path.length - 1) {
+			if (path[index] == 0) {
+				if(path[index+1] == 0) {
+					if (seg1 == false) {
+						segment1_count++;
+						seg1 = true;
+						index++;
+					} else {
+					seg1 =  true;
+					index++;
+					} 
+				} else {
+					seg1 = false;
+					index++;
+				}	
+			} else if (path[index] == 1) {
+				if(path[index+1] == 1) {
+					if (seg2 == false) {
+						start = index+131284313;
+//						System.out.println(index+1);
+						segment2_count++;
+						seg2 = true;
+						index++;
+					} else {
+					seg2 =  true;
+					index++;
+					} 
+				} else {
+					seg2 = false;
+					stop = index+131284313;
 
+					Segments segment = new Segments(start, stop);
 
+					longest_segments.add(segment);
+					index++;
+				}	
+			} else {
+				index++;
+			}
+		}
+		
+		int[] count = {segment1_count, segment2_count};
+		printLongestSegments(longest_segments);
+		return count;
+	}
+	
+	
+	private void printLongestSegments(ArrayList<Segments> longest_segments) {
+//		ArrayList<Map, Integer, Integer[]>
+
+		Collections.sort(longest_segments, new Comparator<Segments>() {
+			@Override public int compare(Segments s1, Segments s2) {
+				return s1.length - s2.length;
+			}
+		});
+		Collections.reverse(longest_segments);
+		System.out.println(longest_segments.toString());
+	}
+	
+	
+	
 	public static void main(String[] args) throws IOException, InterruptedException {
+		
+		//Reads in sequences
+		AlignmentReader alignment = new AlignmentReader("/Users/mareac/Documents/Graduate/GENOME540/HW7/ENm002.maf.aln");
+//		AlignmentReader alignment = new AlignmentReader("/Users/mareac/Documents/Graduate/GENOME540/HW7/ENm006_short.aln");
+		String[] sequences = alignment.readAlignment();
+		
 		String[] states = { "NEUTRAL", "CONSERVED" };
 		double[] initialization = { 0.95, 0.05 };
-//		Character[] alphabet = { 'A', 'T', 'G', 'C' };
 		double[][] transition = { { 0.95, 0.05 }, { 0.10, 0.90 } };
+		
+		//Reads in frequency counts for both states.
+		Map<String, Double> neutral_emissions = FrequencyCounts.getNeutralFrequencyCounts("/Users/mareac/Documents/Graduate/GENOME540/HW7/NeutralFrequencyCounts");
+		Map<String, Double> conserved_emissions = FrequencyCounts.getConservedFrequencyCounts("/Users/mareac/Documents/Graduate/GENOME540/HW7/ConservedFrequencyCounts");
+		
+		List<Map<String, Double>> emission = new ArrayList<Map<String, Double>>();
+		emission.add(neutral_emissions);
+		emission.add(conserved_emissions);
 
-//		List<Map<Character, Double>> emission = new ArrayList<Map<Character, Double>>();
-//		emission.add(createEmissionState(0.291, 0.291, 0.209, 0.209));
-//		emission.add(createEmissionState(0.169, 0.169, 0.331, 0.331));
 		
-
+		HMM markov = new HMM(states, initialization, emission, transition);
+		int[] path = markov.getMostLikelySequence(sequences, transition);
+//		int[] state_numbers = markov.getStateCounts(path);
+		int[] segment_numbers = markov.getSegmentCounts(path);
 		
+//		System.out.println("State numbers: " + state_numbers[0] + " " + state_numbers[1]);
+//		System.out.println("Segment numbers: " + segment_numbers[0] + " " + segment_numbers[1]);
 		
-//		String[] states = { "S1", "S2" };
-//		double[] initialization = { 0.2, 0.8 };
-//		Character[] alphabet = { 'E', 'N' };
-//		double[][] transition = { { 0.5, 0.5 }, { 0.3, 0.7 } };
-//		
-//		List<Map<Character, Double>> emission = new ArrayList<Map<Character, Double>>();
-//		Map<Character, Double> em1 = new HashMap<Character, Double>();
-//		Map<Character, Double> em2 = new HashMap<Character, Double>();
-//		em1.put('N', 0.3); em1.put('E', 0.7);
-//		em2.put('N', 0.8); em2.put('E', 0.2);
-//		emission.add(em1); emission.add(em2);
-//		
-//		String sequence = "NE";
-		
-//		HMM markov = new HMM(states, initialization, emission, transition, alphabet);
-//		markov.baumWelch(sequence, 0.1);
 	}
-	
 	
 }
